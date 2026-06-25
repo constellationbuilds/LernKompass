@@ -49,32 +49,34 @@ THIN_BORDER_COLOR = "BFBFBF"
 COL_WIDTHS_S1 = {"A": 10, "B": 46, "C": 13, "D": 13, "E": 8, "F": 8, "G": 32}
 
 # Day-type colour map for Sheet 3 conditional formatting
+# (bg_hex, fg_hex) — same hex must be used for both CF rules and legend swatches
 DAY_TYPE_COLORS: Dict[str, Tuple[str, str]] = {
-    "Fe":   ("92D050", "000000"),
-    "Pr":   ("FFD966", "000000"),
-    "Prüf": ("FF7070", "FFFFFF"),
-    "Ft":   ("FFB6C1", "000000"),
-    "M0":   ("C6EFCE", "000000"),
-    "M1":   ("FFEB9C", "000000"),
-    "M2":   ("FFC7CE", "000000"),
-    "M3":   ("BDD7EE", "000000"),
-    "M4":   ("E2EFDA", "000000"),
-    "M5":   ("FCE4D6", "000000"),
-    "M6":   ("DAEEF3", "000000"),
-    "M7":   ("EBF1DE", "000000"),
-    "M8":   ("F2DCDB", "000000"),
-    "M9":   ("FFF2CC", "000000"),
-    "M10":  ("DDEBF7", "000000"),
-    "M11":  ("D9EAD3", "000000"),
-    "M12":  ("FCE4D6", "000000"),
-    "M13":  ("C9C9FF", "000000"),
-    "M14":  ("D0E4F5", "000000"),
-    "M15":  ("FFF8DC", "000000"),
-    "M16":  ("E8D5FF", "000000"),
-    "IM0":  ("D9B2FF", "000000"),
-    "IM1":  ("9DC3E6", "000000"),
-    "IM2":  ("F4B183", "000000"),
-    "IM3":  ("FF9999", "000000"),
+    "Fe":   ("70AD47", "000000"),   # medium green
+    "Pr":   ("FFD966", "000000"),   # yellow
+    "Pr+":  ("FFD966", "000000"),   # same yellow as Pr (FPB = Praktikumstag variant)
+    "Prüf": ("FF7070", "FFFFFF"),   # red
+    "Ft":   ("D5EDB3", "000000"),   # light green (lighter than Fe)
+    "M0":   ("E2EEF9", "000000"),
+    "M1":   ("DEEAF1", "000000"),
+    "M2":   ("BDD7EE", "000000"),
+    "M3":   ("9DC3E6", "000000"),
+    "M4":   ("70ADD4", "FFFFFF"),
+    "M5":   ("D9EEF3", "000000"),
+    "M6":   ("A8D5DF", "000000"),
+    "M7":   ("6BB8C8", "000000"),
+    "M8":   ("3A9DB3", "FFFFFF"),
+    "M9":   ("E8E8F7", "000000"),
+    "M10":  ("CACAED", "000000"),
+    "M11":  ("A5A5DE", "000000"),
+    "M12":  ("7B7BCF", "FFFFFF"),
+    "M13":  ("D8E8F8", "000000"),
+    "M14":  ("B0CFED", "000000"),
+    "M15":  ("7FAFD9", "000000"),
+    "M16":  ("4D8EC4", "FFFFFF"),
+    "IM1":  ("FCE4C8", "000000"),
+    "IM2":  ("F9C99A", "000000"),
+    "IM3":  ("F4A563", "000000"),
+    "IM0":  ("EC8330", "FFFFFF"),
 }
 
 # ---------------------------------------------------------------------------
@@ -138,149 +140,65 @@ def _detect_year_sheets(wb: openpyxl.Workbook) -> List[str]:
     return result
 
 
-def _detect_feiertage(wb: openpyxl.Workbook, bundesland: str) -> set:
+
+def _parse_annual_sheet(ws) -> List[Tuple[date, Optional[str]]]:
     """
-    Parse the 'Schulfreie Tage' sheet and return a set of holiday dates
-    for the given Bundesland column (e.g. 'HH').
-    """
-    holidays: set = set()
-    target = None
-    for name in wb.sheetnames:
-        if "schulfreie" in name.lower() or "feiertag" in name.lower():
-            target = name
-            break
-    if target is None:
-        return holidays
-
-    ws = wb[target]
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return holidays
-
-    # Find the header row containing bundesland column
-    header_row_idx = None
-    bl_col_idx = None
-    date_col_idx = None
-
-    for row_idx, row in enumerate(rows):
-        for col_idx, cell in enumerate(row):
-            if isinstance(cell, str) and cell.strip().upper() == bundesland.upper():
-                bl_col_idx = col_idx
-                header_row_idx = row_idx
-                break
-        if bl_col_idx is not None:
-            break
-
-    if header_row_idx is None or bl_col_idx is None:
-        return holidays
-
-    # Find column with dates (first column with date-like values after header)
-    for col_idx, cell in enumerate(rows[header_row_idx]):
-        if isinstance(cell, str) and ("datum" in cell.lower() or "date" in cell.lower()):
-            date_col_idx = col_idx
-            break
-    if date_col_idx is None:
-        date_col_idx = 0
-
-    for row in rows[header_row_idx + 1:]:
-        if not row or row[date_col_idx] is None:
-            continue
-        raw_date = row[date_col_idx]
-        if isinstance(raw_date, date):
-            holiday_date = raw_date
-        elif isinstance(raw_date, (int, float)):
-            holiday_date = _excel_serial_to_date(raw_date)
-        else:
-            continue
-        if holiday_date is None:
-            continue
-        # Check if this bundesland has an 'x' or similar marker
-        if bl_col_idx < len(row) and row[bl_col_idx]:
-            marker = str(row[bl_col_idx]).strip().lower()
-            if marker and marker not in ("0", "nein", "no", "false"):
-                holidays.add(holiday_date)
-
-    return holidays
-
-
-def _parse_annual_sheet(
-    ws, holidays: set
-) -> List[Tuple[date, Optional[str]]]:
-    """
-    Parse one annual-calendar worksheet and return (date, day_type) tuples.
-    day_type: None = teaching day, 'Fe', 'Pr', 'Prüf', 'Ft', 'WE' (weekend)
+    Parse one annual-calendar worksheet.
+    Returns (date, day_type) tuples. day_type=None means teaching day.
+    Relies solely on cell values — the Zeitplan is pre-marked.
     """
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
         return []
 
-    # ---- Find month header row: a row where at least 3 cells are Excel date
-    #      serials (numeric) in the range of valid years, or datetime objects.
+    # Find month header row: row with >= 3 date/datetime objects
     month_row_idx = None
-    month_col_map: Dict[int, date] = {}  # col_index -> first-day-of-month date
+    month_col_map: Dict[int, date] = {}
 
     for row_idx, row in enumerate(rows[:10]):
-        month_candidates: Dict[int, date] = {}
+        candidates: Dict[int, date] = {}
         for col_idx, cell in enumerate(row):
             if cell is None:
                 continue
-            if isinstance(cell, (date,)):
-                month_candidates[col_idx] = date(cell.year, cell.month, 1) if not isinstance(cell, type(None)) else None
-            elif isinstance(cell, float) and 10000 < cell < 60000:
+            if hasattr(cell, "year"):  # datetime or date object
+                candidates[col_idx] = date(cell.year, cell.month, 1)
+            elif isinstance(cell, (int, float)) and 10000 < cell < 60000:
                 d = _excel_serial_to_date(cell)
                 if d:
-                    month_candidates[col_idx] = date(d.year, d.month, 1)
-            elif isinstance(cell, int) and 10000 < cell < 60000:
-                d = _excel_serial_to_date(cell)
-                if d:
-                    month_candidates[col_idx] = date(d.year, d.month, 1)
-        if len(month_candidates) >= 3:
+                    candidates[col_idx] = date(d.year, d.month, 1)
+        if len(candidates) >= 3:
             month_row_idx = row_idx
-            month_col_map = month_candidates
+            month_col_map = candidates
             break
-
-    if month_row_idx is None:
-        # Fallback: look for cells with month names
-        month_names_de = {
-            "januar": 1, "februar": 2, "märz": 3, "april": 4,
-            "mai": 5, "juni": 6, "juli": 7, "august": 8,
-            "september": 9, "oktober": 10, "november": 11, "dezember": 12,
-            "jan": 1, "feb": 2, "mär": 3, "apr": 4,
-            "jun": 6, "jul": 7, "aug": 8, "sep": 9,
-            "okt": 10, "nov": 11, "dez": 12,
-        }
-        for row_idx, row in enumerate(rows[:10]):
-            month_candidates: Dict[int, Tuple[int, int]] = {}
-            for col_idx, cell in enumerate(row):
-                if isinstance(cell, str):
-                    key = cell.strip().lower()[:3]
-                    if key in month_names_de:
-                        # Try to infer year from adjacent cells
-                        month_candidates[col_idx] = month_names_de[cell.strip().lower()[:3] if len(cell) >= 3 else cell.strip().lower()]
-            if len(month_candidates) >= 3:
-                month_row_idx = row_idx
-                # We don't have year info; skip this sheet gracefully
-                print(f"  [WARN] Sheet '{ws.title}': month names found but year cannot be determined. Skipping.")
-                return []
 
     if month_row_idx is None or not month_col_map:
         print(f"  [WARN] Sheet '{ws.title}': no month header row found. Skipping.")
         return []
 
-    # ---- Find day column: first column before month columns that has integers 1-31
+    # Two-column-per-month layout: month header at col N, actual content at col N+1
+    # Detect by average gap between header columns
+    sorted_header_cols = sorted(month_col_map.keys())
+    if len(sorted_header_cols) >= 2:
+        gaps = [sorted_header_cols[i+1] - sorted_header_cols[i]
+                for i in range(len(sorted_header_cols) - 1)]
+        if sum(gaps) / len(gaps) >= 1.8:
+            # Content column is one to the right of the month header column
+            month_col_map = {col_idx + 1: v for col_idx, v in month_col_map.items()}
+
+    # Find day-number column: first column before month columns with integers 1-31
     day_col_idx = None
     min_month_col = min(month_col_map.keys())
     for col_idx in range(min_month_col):
-        col_vals = [rows[r][col_idx] for r in range(month_row_idx + 1, min(month_row_idx + 35, len(rows)))]
+        col_vals = [rows[r][col_idx] if col_idx < len(rows[r]) else None
+                    for r in range(month_row_idx + 1, min(month_row_idx + 35, len(rows)))]
         int_vals = [v for v in col_vals if isinstance(v, (int, float)) and 1 <= v <= 31]
         if len(int_vals) >= 20:
             day_col_idx = col_idx
             break
     if day_col_idx is None:
-        # Use the column just before the first month column
         day_col_idx = max(0, min_month_col - 1)
 
-    # ---- Iterate data rows (day rows)
+    # Build calendar entries
     calendar: List[Tuple[date, Optional[str]]] = []
     sorted_month_cols = sorted(month_col_map.keys())
 
@@ -300,68 +218,69 @@ def _parse_annual_sheet(
 
         for col_idx in sorted_month_cols:
             month_first = month_col_map[col_idx]
-            # Validate date
             try:
                 current_date = date(month_first.year, month_first.month, day_num)
             except ValueError:
-                continue  # day doesn't exist in this month
+                continue  # invalid date (e.g. Feb 30)
 
             cell_val = row[col_idx] if col_idx < len(row) else None
-            day_type = _classify_day(current_date, cell_val, holidays)
+            day_type = _classify_day(current_date, cell_val)
             calendar.append((current_date, day_type))
 
     return calendar
 
 
-def _classify_day(
-    d: date, cell_val, holidays: set
-) -> Optional[str]:
+def _classify_day(d: date, cell_val) -> Optional[str]:
     """
-    Return day_type string or None for a teaching day.
-    Priority: weekend > feiertag > cell marker
+    Classify a calendar day based solely on the Zeitplan cell value.
+    The Zeitplan is the single source of truth:
+      - numeric value (int/float) = Unterrichtstag (teaching day)
+      - 'Fe'  = Ferien
+      - 'Pr'  = Praktikum
+      - 'Pr/4'= Fachpraktische Begleitung (FPB) -> mapped to 'Pr+'
+      - 'Prüf'= Prüfungstag
+      - 'Ft'  = Feiertag (already marked in Zeitplan)
+      - None/empty = Wochenende or non-course day
     """
-    if d.weekday() >= 5:  # Saturday=5, Sunday=6
-        return "WE"
-    if d in holidays:
-        return "Ft"
-    if cell_val is None:
-        return None
     if isinstance(cell_val, (int, float)):
-        # Numeric → regular day (some calendars put day numbers here)
-        return None
+        return None  # numeric UE value = teaching day
     if isinstance(cell_val, str):
         val = cell_val.strip()
-        if val == "":
-            return None
-        # Normalize common markers
+        if not val:
+            return "WE"
         mapping = {
-            "fe": "Fe", "ferien": "Fe",
-            "pr": "Pr", "praktikum": "Pr", "prakt.": "Pr",
-            "prüf": "Prüf", "prüfung": "Prüf", "pruef": "Prüf",
-            "ft": "Ft", "feiertag": "Ft",
+            "fe":       "Fe",
+            "ferien":   "Fe",
+            "pr":       "Pr",
+            "praktikum":"Pr",
+            "pr/4":     "Pr+",
+            "prüf":     "Prüf",
+            "prüfung":  "Prüf",
+            "pruef":    "Prüf",
+            "ft":       "Ft",
+            "feiertag": "Ft",
         }
         return mapping.get(val.lower(), val)
-    return None
+    # None/empty cell on a weekday = Feiertag (grey fill, no text/UE value in Zeitplan)
+    # None/empty on Sat/Sun = Wochenende
+    if d.weekday() >= 5:
+        return "WE"
+    return "Ft"
 
 
-def parse_zeitplan(
-    path: str, bundesland: str = "HH"
-) -> List[Tuple[date, Optional[str]]]:
+def parse_zeitplan(path: str) -> List[Tuple[date, Optional[str]]]:
     """
     Parse the Zeitplan Excel file.
-    Returns an ordered list of (date, day_type) for all calendar days found.
-    Teaching days have day_type == None.
+    The Zeitplan is the single source of truth for all day types.
+    Returns ordered list of (date, day_type). Teaching days have day_type=None.
     """
     print(f"[INFO] Parsing Zeitplan: {path}")
     wb = openpyxl.load_workbook(path, data_only=True)
 
-    holidays = _detect_feiertage(wb, bundesland)
-    print(f"  Found {len(holidays)} Feiertage for '{bundesland}'.")
-
     annual_sheets = _detect_year_sheets(wb)
     if not annual_sheets:
         print("  [WARN] No annual sheets detected. Trying all non-special sheets.")
-        skip = {"schulfreie", "feiertag", "legende", "hinweise", "info"}
+        skip = {"schulfreie", "feiertag", "legende", "hinweise", "info", "ubersicht", "ubersicht"}
         annual_sheets = [
             s for s in wb.sheetnames
             if not any(kw in s.lower() for kw in skip)
@@ -373,18 +292,53 @@ def parse_zeitplan(
     for sheet_name in annual_sheets:
         print(f"  Processing sheet: '{sheet_name}'")
         ws = wb[sheet_name]
-        sheet_days = _parse_annual_sheet(ws, holidays)
+        sheet_days = _parse_annual_sheet(ws)
         added = 0
         for entry in sheet_days:
             if entry[0] not in seen_dates:
                 all_days.append(entry)
                 seen_dates.add(entry[0])
                 added += 1
-        print(f"    → {added} calendar days added.")
+        print(f"    -> {added} calendar days added.")
 
     all_days.sort(key=lambda x: x[0])
+
+    # Detect course Beginn/Ende from first sheet header rows
+    course_start: Optional[date] = None
+    course_end:   Optional[date] = None
+    if annual_sheets:
+        header_ws = wb[annual_sheets[0]]
+        for row in list(header_ws.iter_rows(values_only=True))[:6]:
+            if not row:
+                continue
+            for ci, cell in enumerate(row):
+                if not isinstance(cell, str):
+                    continue
+                if "beginn" in cell.lower():
+                    for adj in row[ci+1:ci+4]:
+                        if hasattr(adj, "year"):
+                            course_start = adj.date() if hasattr(adj, "date") else adj
+                            break
+                if "ende" in cell.lower():
+                    for adj in row[ci+1:ci+4]:
+                        if hasattr(adj, "year"):
+                            course_end = adj.date() if hasattr(adj, "date") else adj
+                            break
+
+    if course_start:
+        print(f"  Course start: {course_start} -> filtering.")
+        all_days = [(d, dt) for d, dt in all_days if d >= course_start]
+    if course_end:
+        print(f"  Course end:   {course_end}")
+        all_days = [(d, dt) for d, dt in all_days if d <= course_end]
+
     teaching_count = sum(1 for _, dt in all_days if dt is None)
-    print(f"  Total calendar days: {len(all_days)}, teaching days: {teaching_count}")
+    pr_count = sum(1 for _, dt in all_days if dt == "Pr")
+    pr_plus_count = sum(1 for _, dt in all_days if dt == "Pr+")
+    fe_count = sum(1 for _, dt in all_days if dt == "Fe")
+    ft_count = sum(1 for _, dt in all_days if dt == "Ft")
+    print(f"  Total: {len(all_days)} days | Teaching: {teaching_count} | "
+          f"Fe: {fe_count} | Pr: {pr_count} | Pr+: {pr_plus_count} | Ft: {ft_count}")
     return all_days
 
 
@@ -522,7 +476,7 @@ def interactive_adjust(modules: List[Dict], deficit: int) -> List[Dict]:
                 new_days = math.ceil(m["ue"] / 9)
                 freed = old_days - new_days
                 days_to_free -= freed
-                print(f"  → {m['id']} angepasst: {m['ue']:.0f} UE ({freed:+d} Tage freigegeben). Noch offen: {days_to_free}")
+                print(f"  -> {m['id']} angepasst: {m['ue']:.0f} UE ({freed:+d} Tage freigegeben). Noch offen: {days_to_free}")
                 found = True
                 break
         if not found:
@@ -554,10 +508,10 @@ def schedule_modules(
 
     # Fill non-teaching days first
     for d, dt in calendar_days:
-        if dt is not None and dt != "WE":
-            day_to_module[d] = dt
-        elif dt == "WE":
+        if dt == "WE":
             day_to_module[d] = ""
+        elif dt is not None:
+            day_to_module[d] = dt  # Fe, Pr, Pr+, Prüf, Ft
 
     for module in modules:
         days_needed = math.ceil(module["ue"] / ue_pro_tag)
@@ -787,7 +741,7 @@ def _write_s3_jahreskalender(
     """Build Sheet 3: Jahreskalender with conditional formatting."""
     from collections import defaultdict
 
-    # Organise calendar_days by (year, month) → {day: label}
+    # Organise calendar_days by (year, month) -> {day: label}
     by_month: Dict[Tuple[int, int], Dict[int, str]] = defaultdict(dict)
     for d, dt in calendar_days:
         label = day_to_module.get(d, "")
@@ -795,24 +749,59 @@ def _write_s3_jahreskalender(
             label = ""
         by_month[(d.year, d.month)][d.day] = label
 
-    # Sort months
-    sorted_months: List[Tuple[int, int]] = sorted(by_month.keys())
+    # Determine display range from the module schedule (not all calendar_days)
+    sched_dates = [e["start_date"] for e in schedule if e["start_date"]] + \
+                  [e["end_date"]   for e in schedule if e["end_date"]]
+    if sched_dates:
+        course_start = min(sched_dates)
+        course_end   = max(sched_dates)
+    else:
+        all_data = sorted(by_month.keys())
+        course_start = date(all_data[0][0],  all_data[0][1],  1)
+        course_end   = date(all_data[-1][0], all_data[-1][1], 28)
+
+    # Border month before/after the course
+    cs_y, cs_m = course_start.year, course_start.month
+    ce_y, ce_m = course_end.year,   course_end.month
+    border_before = (cs_y - 1, 12) if cs_m == 1 else (cs_y, cs_m - 1)
+    border_after  = (ce_y + 1,  1) if ce_m == 12 else (ce_y, ce_m + 1)
+
+    # Build sorted_months covering border_before … border_after
+    b_year, b_month = border_before
+    e_year, e_month = border_after
+    sorted_months: List[Tuple[int, int]] = []
+    y, m = b_year, b_month
+    while (y, m) <= (e_year, e_month):
+        sorted_months.append((y, m))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
     if not sorted_months:
         ws["A1"].value = "Keine Daten."
         return
 
-    # Group months by year for header
+    # Group months by year for row 2 headers
     years: Dict[int, List[int]] = defaultdict(list)
     for year, month in sorted_months:
         years[year].append(month)
 
-    # ---- Layout ----
-    # Col A = day numbers, cols B onwards = months
-    month_col_start = 2  # 1-indexed
+    # Layout constants
+    month_col_start = 2  # Col A = day numbers, Col B = first month
+    n_months = len(sorted_months)
+    last_data_col = month_col_start + n_months - 1
+    last_col_letter = get_column_letter(last_data_col)
+    data_range = f"B4:{last_col_letter}34"
 
-    # Row 1: Title
-    total_cols = 1 + len(sorted_months)
-    last_col_letter = get_column_letter(total_cols)
+    # Shared styles
+    grey_side = Side(style="thin", color="BFBFBF")
+    grey_border = Border(left=grey_side, right=grey_side, top=grey_side, bottom=grey_side)
+    weekend_fill = PatternFill("solid", fgColor="AEAAAA")
+    invalid_fill = PatternFill("solid", fgColor="D9D9D9")
+    cal_font = Font(name="Arial", size=9)
+
+    # ---- Row 1: Title ----
     ws.merge_cells(f"A1:{last_col_letter}1")
     ws["A1"].value = f"Jahreskalender – {kursname}"
     ws["A1"].font = Font(name="Arial", bold=True, size=14, color=HEADER_FG)
@@ -820,126 +809,198 @@ def _write_s3_jahreskalender(
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 22
 
-    # Row 2: Year group headers (merged over their months)
+    # ---- Row 2: Year group headers ----
     col_cursor = month_col_start
     for year, months_in_year in sorted(years.items()):
         span = len(months_in_year)
-        start_letter = get_column_letter(col_cursor)
-        end_letter = get_column_letter(col_cursor + span - 1)
+        sl = get_column_letter(col_cursor)
+        el = get_column_letter(col_cursor + span - 1)
         if span > 1:
-            ws.merge_cells(f"{start_letter}2:{end_letter}2")
+            ws.merge_cells(f"{sl}2:{el}2")
         c = ws.cell(row=2, column=col_cursor, value=str(year))
-        c.font = _make_font(bold=True, size=11, color=HEADER_FG)
+        c.font = Font(name="Arial", bold=True, size=10, color=HEADER_FG)
         c.fill = _header_fill()
         c.alignment = Alignment(horizontal="center", vertical="center")
         col_cursor += span
     ws["A2"].value = "Tag"
-    ws["A2"].font = _make_font(bold=True, color=HEADER_FG)
+    ws["A2"].font = Font(name="Arial", bold=True, size=9, color=HEADER_FG)
     ws["A2"].fill = _header_fill()
     ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[2].height = 18
 
-    # Row 3: Month headers
+    # ---- Row 3: Month headers ----
     month_names_short = ["", "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
                          "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
-    ws["A3"].value = ""
     ws["A3"].fill = _header_fill()
-    ws["A3"].font = _make_font(bold=True, color=HEADER_FG)
+    ws["A3"].font = Font(name="Arial", bold=True, size=9, color=HEADER_FG)
     ws.row_dimensions[3].height = 16
 
     for col_idx, (year, month) in enumerate(sorted_months, start=month_col_start):
-        label = f"{month_names_short[month]} {str(year)[2:]}"
-        c = ws.cell(row=3, column=col_idx, value=label)
-        c.font = _make_font(bold=True, color=HEADER_FG, size=9)
+        lbl = f"{month_names_short[month]} {str(year)[2:]}"
+        c = ws.cell(row=3, column=col_idx, value=lbl)
+        c.font = Font(name="Arial", bold=True, color=HEADER_FG, size=9)
         c.fill = _header_fill()
         c.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Rows 4-34: Day rows
+    # ---- Rows 4-34: Day rows ----
     for day_num in range(1, 32):
-        row = 3 + day_num  # row 4=day1 ... row 34=day31
-        ws.row_dimensions[row].height = 16
+        row = 3 + day_num
+        ws.row_dimensions[row].height = 15
 
-        # Col A: day number
         a_cell = ws.cell(row=row, column=1, value=day_num)
-        a_cell.font = _make_font(bold=True, size=9)
+        a_cell.font = Font(name="Arial", bold=True, size=9)
         a_cell.fill = PatternFill("solid", fgColor="E8E8E8")
         a_cell.alignment = Alignment(horizontal="center", vertical="center")
 
         for col_idx, (year, month) in enumerate(sorted_months, start=month_col_start):
-            cell_label = by_month[(year, month)].get(day_num, None)
-            # Determine if this day is valid in this month
+            c = ws.cell(row=row, column=col_idx)
+            c.font = cal_font
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = grey_border
+
             try:
                 d = date(year, month, day_num)
-                if cell_label is None:
-                    # check weekday
-                    cell_label = "" if d.weekday() < 5 else ""
             except ValueError:
-                cell_label = None  # invalid date for this month
+                c.fill = invalid_fill
+                c.value = None
+                continue
 
-            c = ws.cell(row=row, column=col_idx)
-            c.value = cell_label if cell_label is not None else None
-            c.font = _make_font(size=8)
-            c.alignment = Alignment(horizontal="center", vertical="center")
+            if d.weekday() >= 5:
+                c.fill = weekend_fill
+                c.value = None
+            else:
+                cell_label = by_month[(year, month)].get(day_num, "")
+                c.value = cell_label if cell_label else None
+                # No static fill — conditional formatting handles colours
 
-    # Column widths
-    ws.column_dimensions["A"].width = 5
-    for col_idx in range(month_col_start, month_col_start + len(sorted_months)):
-        ws.column_dimensions[get_column_letter(col_idx)].width = 7
+    # ---- Column widths ----
+    ws.column_dimensions["A"].width = 4
+    for col_idx in range(month_col_start, month_col_start + n_months):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 6.5
 
-    # Freeze panes
     ws.freeze_panes = "B4"
 
-    # ---- Conditional formatting ----
-    data_range = f"B4:{last_col_letter}34"
-    for label, (bg_hex, fg_hex) in DAY_TYPE_COLORS.items():
-        diff_style = DifferentialStyle(
+    # ---- Conditional formatting — type="expression", exact equality ----
+    # Use bgColor (correct for DifferentialStyle in Excel CF XML)
+    # Add in REVERSE priority order: last added = highest priority in openpyxl output
+    # Desired priority high->low: Prüf > Pr* > Pr > Fe > Ft > modules
+    cf_order = list(DAY_TYPE_COLORS.keys())  # modules first (lowest), then specials last
+    # Specials must be at the end so they get highest priority
+    specials = ["Fe", "Ft", "Pr", "Pr+", "Prüf"]
+    modules_order = [k for k in cf_order if k not in specials]
+    final_order = modules_order + ["Fe", "Ft", "Pr", "Pr+", "Prüf"]
+
+    for lbl in final_order:
+        bg_hex, fg_hex = DAY_TYPE_COLORS.get(lbl, ("FFFFFF", "000000"))
+        dxf = DifferentialStyle(
             fill=PatternFill(bgColor=bg_hex),
-            font=Font(color=fg_hex),
+            font=Font(name="Arial", color=fg_hex, size=9),
         )
-        rule = Rule(
-            type="containsText",
-            operator="containsText",
-            text=label,
-            dxf=diff_style,
-        )
-        rule.formula = [f'NOT(ISERROR(SEARCH("{label}",B4)))']
+        rule = Rule(type="expression", dxf=dxf)
+        rule.formula = [f'B4="{lbl}"']
         ws.conditional_formatting.add(data_range, rule)
 
-    # ---- Legend (row 38+) ----
-    legend_start_row = 37
-    ws.cell(row=legend_start_row, column=1).value = "Legende"
-    ws.cell(row=legend_start_row, column=1).font = _make_font(bold=True, size=10)
-
-    # Build id→title lookup from schedule
+    # ---- Legend (starting at row 37) ----
+    LEGEND_START = 37
     id_to_title = {e["id"]: e["title"] for e in schedule}
-    # Add static entries
-    static_legend = {
-        "Fe": "Ferien",
-        "Pr": "Praktikum",
-        "Prüf": "Prüfung",
-        "Ft": "Feiertag",
-    }
+    id_to_ue = {e["id"]: e["ue"] for e in schedule}
 
-    legend_row = legend_start_row + 1
-    for label, (bg_hex, fg_hex) in DAY_TYPE_COLORS.items():
-        if label.startswith("M") or label.startswith("IM"):
-            title = id_to_title.get(label, "")
-        else:
-            title = static_legend.get(label, "")
+    ws.cell(row=LEGEND_START, column=1).value = "Legende"
+    ws.cell(row=LEGEND_START, column=1).font = Font(name="Arial", bold=True, size=9)
+    ws.row_dimensions[LEGEND_START].height = 14
 
-        # Swatch
-        swatch = ws.cell(row=legend_row, column=1, value=label)
-        swatch.fill = PatternFill("solid", fgColor=bg_hex)
-        swatch.font = Font(name="Arial", size=9, color=fg_hex, bold=True)
-        swatch.alignment = Alignment(horizontal="center", vertical="center")
+    # Headers for Tage / UE
+    hdr_font = Font(name="Arial", bold=True, size=9)
+    hdr_align = Alignment(horizontal="center", vertical="center")
+    ws.cell(row=LEGEND_START, column=11, value="Tage").font = hdr_font
+    ws.cell(row=LEGEND_START, column=11).alignment = hdr_align
+    ws.cell(row=LEGEND_START, column=12, value="UE").font = hdr_font
+    ws.cell(row=LEGEND_START, column=12).alignment = hdr_align
+
+    legend_row = LEGEND_START + 1
+
+    def _add_legend_row(lbl, description, bg_hex, fg_hex, tage_formula=None, ue_val=None):
+        nonlocal legend_row
+        # Col A: coloured swatch + label text
+        sw = ws.cell(row=legend_row, column=1, value=lbl)
+        sw.fill = PatternFill("solid", fgColor=bg_hex)
+        sw.font = Font(name="Arial", size=9, color=fg_hex, bold=True)
+        sw.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[legend_row].height = 14
 
-        # Name
-        name_cell = ws.cell(row=legend_row, column=2, value=title)
-        name_cell.font = _make_font(size=9)
-        name_cell.alignment = Alignment(horizontal="left", vertical="center")
+        # Cols B:J merged — description
+        ws.merge_cells(f"B{legend_row}:J{legend_row}")
+        dc = ws.cell(row=legend_row, column=2, value=description)
+        dc.font = Font(name="Arial", size=9)
+        dc.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        # Col K: Tage (COUNTIF formula)
+        kc = ws.cell(row=legend_row, column=11)
+        if tage_formula is not None:
+            kc.value = tage_formula
+        kc.font = Font(name="Arial", size=9)
+        kc.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Col L: UE
+        lc = ws.cell(row=legend_row, column=12)
+        if ue_val is not None:
+            lc.value = ue_val
+        lc.font = Font(name="Arial", size=9)
+        lc.alignment = Alignment(horizontal="center", vertical="center")
 
         legend_row += 1
+
+    cf = f"$B$4:${last_col_letter}$34"   # COUNTIF range
+
+    _add_legend_row("Fe",   "Ferien",                   "92D050", "000000",
+                    f'=COUNTIF({cf},"Fe")')
+    _add_legend_row("Pr",   "Praktikumstag",            "FFD966", "000000",
+                    f'=COUNTIF({cf},"Pr")')
+
+    # Pr+ row — description contains "zzgl. 2 UE" for dynamic UE formula
+    pr_star_row = legend_row
+    pr_star_desc = "Praktikumstag zzgl. 2 UE Fachpraktische Begleitung"
+    _add_legend_row("Pr+",  pr_star_desc,               "F0B400", "000000",
+                    f'=COUNTIF({cf},"Pr+")')
+    # L formula reads "2" from the description text in B{pr_star_row}
+    ws.cell(row=pr_star_row, column=12).value = (
+        f'=VALUE(TRIM(MID(B{pr_star_row},FIND("zzgl.",B{pr_star_row})+6,'
+        f'FIND("UE",B{pr_star_row})-FIND("zzgl.",B{pr_star_row})-6)))*K{pr_star_row}'
+    )
+
+    _add_legend_row("Prüf", "Prüfungstag",              "FF7070", "FFFFFF",
+                    f'=COUNTIF({cf},"Prüf")')
+    _add_legend_row("Ft",   "Feiertag (gesetzlich)",    "FFB6C1", "000000",
+                    f'=COUNTIF({cf},"Ft")')
+
+    module_ue_start = legend_row
+
+    for lbl, (bg_hex, fg_hex) in DAY_TYPE_COLORS.items():
+        if not (lbl.startswith("M") or lbl.startswith("IM")):
+            continue
+        title = id_to_title.get(lbl, "")
+        if not title:
+            continue
+        ue_actual = id_to_ue.get(lbl)
+        _add_legend_row(
+            lbl, title, bg_hex, fg_hex,
+            f'=COUNTIF({cf},"{lbl}")',
+            int(ue_actual) if ue_actual is not None else None,
+        )
+
+    module_ue_end = legend_row - 1
+
+    # SUMME row
+    ws.cell(row=legend_row, column=1, value="Summe").font = Font(name="Arial", bold=True, size=9)
+    ws.row_dimensions[legend_row].height = 14
+    sum_k = ws.cell(row=legend_row, column=11)
+    sum_k.value = f"=SUM(K{LEGEND_START + 1}:K{legend_row - 1})"
+    sum_k.font = Font(name="Arial", bold=True, size=9)
+    sum_k.alignment = Alignment(horizontal="center", vertical="center")
+    sum_l = ws.cell(row=legend_row, column=12)
+    sum_l.value = f"=SUM(L{LEGEND_START + 1}:L{legend_row - 1})"
+    sum_l.font = Font(name="Arial", bold=True, size=9)
+    sum_l.alignment = Alignment(horizontal="center", vertical="center")
 
 
 # ---------------------------------------------------------------------------
@@ -991,8 +1052,6 @@ def main():
     parser.add_argument("--output", default=None, help="Output file path (auto-generated if omitted)")
     parser.add_argument("--ue-pro-tag", type=int, default=9, dest="ue_pro_tag",
                         help="UE per teaching day (default: 9)")
-    parser.add_argument("--bundesland", default="HH",
-                        help="Bundesland abbreviation for Feiertag detection (default: HH)")
     args = parser.parse_args()
 
     # Validate inputs
@@ -1021,7 +1080,7 @@ def main():
         output_path = os.path.join(zeitplan_dir, filename)
 
     # Parse inputs
-    calendar_days = parse_zeitplan(args.zeitplan, args.bundesland)
+    calendar_days = parse_zeitplan(args.zeitplan)
     modules = parse_modulplan(args.modulplan)
 
     if not calendar_days:

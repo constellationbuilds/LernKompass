@@ -18,27 +18,32 @@ Dieser Skill erstellt einen vollständigen Unterrichtsplan als Excel-Datei.
 ## Schritt 1: Eingaben erfragen
 
 Frage den Nutzer nach:
-1. **Zeitplan-Datei** (Excel): Kalender mit Unterrichts-/Ferien-/Praktikumstagen
-2. **Modulplan-Quelle**: Entweder eine eigenständige Excel/Word-Datei ODER eine Konzeptionsdatei (Word), aus der der Modulplan extrahiert wird
-3. **Kursname** (optional, z.B. "KBM", "IT-Fachkraft", "u-IMMO") — wird im Dateinamen verwendet
+1. **Zeitplan-Datei** (Excel): Kalender mit vormarkierten Tagestypen
+2. **Modulplan-Datei** (Excel): Tabelle mit Modul-ID, Modulbezeichnung, UE
+3. **Kursname** (optional, z.B. "KBM", "u-IMMO") — wird im Dateinamen verwendet
 4. **UE pro Tag** (optional, Standard: 9)
 
 ## Schritt 2: Zeitplan parsen
 
-Der Zeitplan hat Jahresblätter (z.B. "1. Jahr", "2. Jahr", "3. Jahr").
-Jedes Blatt ist ein tagesgenaues Kalender-Raster:
+Der Zeitplan hat Jahresblätter (z.B. "1. Jahr", "2. Jahr").
+Der Zeitplan ist die **einzige Wahrheitsquelle** für alle Tagestypen — keine eigene Feiertagslogik.
+
+Zellwert-Interpretation:
 
 | Zellwert | Bedeutung |
 |----------|-----------|
-| Leer / Wochentag-Nummer | Unterrichtstag |
+| Zahl (9, 6, 4, ...) | Unterrichtstag (UE für diesen Tag) |
 | `Fe` | Ferien |
 | `Pr` | Praktikum |
-| `Prüf` | Prüfung |
-| Wochenende (Sa/So) | kein Unterricht |
+| `Pr/4` | Fachpraktische Begleitung (FPB) → intern `Pr+` |
+| `Prüf` | Prüfungstag |
+| `Ft` | Feiertag |
+| leer (Mo–Fr) | Feiertag (graue Füllung ohne Text) |
+| leer (Sa/So) | Wochenende |
 
-Extrahiere eine **geordnete Liste aller Unterrichtstage** (tatsächliche Datumsangaben) über alle Jahresblätter.
+Viele Zeitpläne haben ein **Zwei-Spalten-Layout pro Monat**: ungerade Spalte = Wochentag-Indikator (ignorieren), gerade Spalte = eigentlicher Zellinhalt. Das Script erkennt dieses Layout automatisch.
 
-**Hinweis zum Datenformat:** Die Jahresblätter enthalten in den Zusammenfassungszeilen (ca. Zeilen 37–44) Statistiken: Theorie-Tage, Stunden/Monat, Praktikumstage, Ferientage. Nutze diese zur Plausibilitätsprüfung.
+Der Zeitplan enthält in den ersten Zeilen des ersten Jahresblatts die Felder **Beginn** und **Ende** — das Script filtert den Kalender automatisch auf diese Kursperiode.
 
 ## Schritt 3: Modulplan parsen
 
