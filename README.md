@@ -40,12 +40,25 @@ Excel-Datei `Unterrichtsplan_[Kursname]_[Jahr].xlsx` mit:
 |--------|-----------|-------|
 | `Fe` | Ferien | Grün |
 | `Pr` | Praktikum | Gelb |
+| `Pr+` | Praktikum + Fachpraktische Begleitung (FPB) | Gelb (wie `Pr`) |
 | `Prüf` | Prüfung | Rot |
-| `Ft` | Feiertag | Rosa |
-| `M1`–`M16` | Unterrichtsmodule | je eigene Farbe |
-| `IM1`–`IM3`, `IM0` | Fachmodule | je eigene Farbe |
+| `Ft` | Feiertag | Hellgrün (heller als `Fe`) |
+| beliebige Modul-IDs | Unterrichtsmodule | je eigene Farbe (dynamisch) |
 
-Da die Farbzuordnung über bedingte Formatierung läuft, kann der Nutzer Zellwerte manuell ändern — die Farbe passt sich automatisch an.
+Die **Modulfarben werden dynamisch vergeben** — egal ob `M1`–`M18`, `M0`–`M16`
+oder `IM0`–`IM3`: jede tatsächlich vorkommende Modul-ID bekommt automatisch eine
+eigene Farbe aus der Palette. Die Anzahl der Module ist frei variabel.
+
+Da die Farbzuordnung über bedingte Formatierung läuft, kann der Nutzer Zellwerte manuell ändern — die Farbe passt sich automatisch an. Legende und Kalender verwenden dieselbe Farbquelle und können nicht auseinanderlaufen.
+
+#### Automatischer UE-Ausgleich
+
+Der Modulplan ist **idealtypisch** (maximaler UE-Umfang). Bietet der konkrete
+Zeitplan weniger Unterrichtstage als der Modulplan benötigt, kürzt LernKompass
+**automatisch und ausschließlich die Prüfungsvorbereitung** – die
+**Fachpraktische Begleitung (FPB) wird nie gekürzt**. Die Kürzung wird in der
+Spalte *Bemerkungen* dokumentiert. Es erfolgt **keine interaktive Rückfrage**
+(wichtig für den unbeaufsichtigten Betrieb unter Copilot).
 
 ---
 
@@ -61,6 +74,26 @@ Aufruf in Claude Code:
 ```
 
 Oder natürlichsprachlich: *„Erstelle einen Unterrichtsplan aus diesen zwei Dateien."*
+
+---
+
+## Verwendung mit GitHub Copilot (VS Code, Agent-Modus)
+
+LernKompass läuft auch unter **GitHub Copilot Chat** – **ohne ständige
+Erlaubnisabfragen**. Das Prinzip: die gesamte Logik steckt in *einem* Skript-Aufruf,
+und ein einziger Befehl löst höchstens eine Abfrage aus (mit Freigabeliste: keine).
+
+Mitgeliefert:
+
+- [`.github/prompts/unterrichtsplan.prompt.md`](.github/prompts/unterrichtsplan.prompt.md) — Slash-Befehl `/unterrichtsplan`
+- [`.github/copilot-instructions.md`](.github/copilot-instructions.md) — steuert auch freie Anfragen auf den einen Befehl
+- [`.vscode/settings.json`](.vscode/settings.json) — gibt `python` ohne Rückfrage frei
+
+Vollständige Einrichtung inkl. der wichtigen Unterscheidung **GitHub Copilot vs.
+Microsoft 365 Copilot**: siehe **[docs/COPILOT-Setup.md](docs/COPILOT-Setup.md)**.
+
+> Hinweis: **Microsoft 365 Copilot** (Word/Excel/Teams) kann *keine* lokalen
+> Skripte ausführen – dafür wäre ein Neubau auf Power Platform nötig.
 
 ---
 
@@ -82,11 +115,19 @@ python scripts/generate_unterrichtsplan.py \
 ```
 LernKompass/
 ├── README.md
+├── .github/
+│   ├── copilot-instructions.md       # Repo-weite Copilot-Steuerung
+│   └── prompts/
+│       └── unterrichtsplan.prompt.md # Copilot-Skill: /unterrichtsplan
+├── .vscode/
+│   └── settings.json                 # Auto-Freigabe für python (keine Abfragen)
+├── docs/
+│   └── COPILOT-Setup.md              # Einrichtung Copilot ohne Erlaubnisabfragen
 ├── skills/
 │   └── unterrichtsplan/
 │       └── SKILL.md          # Claude Code Skill
 ├── scripts/
-│   └── generate_unterrichtsplan.py   # Standalone Python-Skript
+│   └── generate_unterrichtsplan.py   # Standalone Python-Skript (Engine)
 └── beispiele/
     └── README.md             # Hinweise zu Beispieldateien
 ```
@@ -95,9 +136,11 @@ LernKompass/
 
 ## Zukunft / Roadmap
 
+- [x] GitHub-Copilot-Integration (Prompt + Auto-Freigabe, ohne Erlaubnisabfragen)
+- [x] Automatische Kürzung der Prüfungsvorbereitung bei UE-Defizit
+- [x] Variable Modulanzahl mit dynamischer Farbvergabe
 - [ ] Modulplan als eigenständige Excel-Vorlage (`Modulplan_Template.xlsx`)
-- [ ] Copilot-Prompt für Microsoft 365 / Teams (2-Dokumente-Limit)
-- [ ] Unterstützung mehrerer Bundesländer (automatische Feiertagserkennung)
+- [ ] Microsoft 365 Copilot / Power Platform (lokale Skripte dort nicht ausführbar → Neubau)
 - [ ] Web-Interface (Power Apps oder einfaches HTML-Tool)
 
 ---

@@ -1,0 +1,26 @@
+{
+  // --- GitHub Copilot Agent Mode: keine ständigen Erlaubnisabfragen ---
+  // python-Aufrufe werden ohne Rückfrage ausgeführt; gefährliche Befehle
+  // (Löschen, Prozesse beenden) bleiben bewusst gesperrt.
+  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.tools.terminal.autoApprove": {
+    "python": true,
+    "python3": true,
+    "py": true,
+    "/^python\\d? .*generate_unterrichtsplan\\.py/": true,
+
+    "rm": false,
+    "del": false,
+    "Remove-Item": false,
+    "rmdir": false,
+    "kill": false,
+    "/Invoke-WebRequest|iwr|curl/": false
+  },
+
+  // Prompt-Dateien (.github/prompts/*.prompt.md) aktivieren -> /unterrichtsplan
+  "chat.promptFiles": true,
+
+  // Auf Windows den PowerShell-Standardprofil festnageln, damit die
+  // Auto-Approve-Regeln zuverlässig auf den Befehlstext passen.
+  "terminal.integrated.defaultProfile.windows": "PowerShell"
+}

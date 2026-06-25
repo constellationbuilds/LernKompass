@@ -48,36 +48,43 @@ THIN_BORDER_COLOR = "BFBFBF"
 # Column widths for Sheet 1
 COL_WIDTHS_S1 = {"A": 10, "B": 46, "C": 13, "D": 13, "E": 8, "F": 8, "G": 32}
 
-# Day-type colour map for Sheet 3 conditional formatting
-# (bg_hex, fg_hex) — same hex must be used for both CF rules and legend swatches
-DAY_TYPE_COLORS: Dict[str, Tuple[str, str]] = {
-    "Fe":   ("70AD47", "000000"),   # medium green
-    "Pr":   ("FFD966", "000000"),   # yellow
-    "Pr+":  ("FFD966", "000000"),   # same yellow as Pr (FPB = Praktikumstag variant)
-    "Prüf": ("FF7070", "FFFFFF"),   # red
-    "Ft":   ("D5EDB3", "000000"),   # light green (lighter than Fe)
-    "M0":   ("E2EEF9", "000000"),
-    "M1":   ("DEEAF1", "000000"),
-    "M2":   ("BDD7EE", "000000"),
-    "M3":   ("9DC3E6", "000000"),
-    "M4":   ("70ADD4", "FFFFFF"),
-    "M5":   ("D9EEF3", "000000"),
-    "M6":   ("A8D5DF", "000000"),
-    "M7":   ("6BB8C8", "000000"),
-    "M8":   ("3A9DB3", "FFFFFF"),
-    "M9":   ("E8E8F7", "000000"),
-    "M10":  ("CACAED", "000000"),
-    "M11":  ("A5A5DE", "000000"),
-    "M12":  ("7B7BCF", "FFFFFF"),
-    "M13":  ("D8E8F8", "000000"),
-    "M14":  ("B0CFED", "000000"),
-    "M15":  ("7FAFD9", "000000"),
-    "M16":  ("4D8EC4", "FFFFFF"),
-    "IM1":  ("FCE4C8", "000000"),
-    "IM2":  ("F9C99A", "000000"),
-    "IM3":  ("F4A563", "000000"),
-    "IM0":  ("EC8330", "FFFFFF"),
+# Special day-type colours for Sheet 3 (calendar markings, NOT modules).
+# (bg_hex, fg_hex) — the SAME hex is used for the CF rules and the legend swatches,
+# so the calendar and its legend can never drift apart.
+SPECIAL_DAY_COLORS: Dict[str, Tuple[str, str]] = {
+    "Fe":   ("70AD47", "000000"),   # medium green  (Ferien)
+    "Pr":   ("FFD966", "000000"),   # yellow        (Praktikum)
+    "Pr+":  ("FFD966", "000000"),   # same yellow   (Praktikum + Fachpraktische Begleitung)
+    "Prüf": ("FF7070", "FFFFFF"),   # red           (Prüfung)
+    "Ft":   ("D5EDB3", "000000"),   # light green   (Feiertag, heller als Fe)
 }
+
+# Colour palette assigned IN ORDER to whatever module IDs actually occur.
+# This lets the script handle a variable number of modules with arbitrary IDs
+# (M1..M18, M0..M16, IM0..IM3, …) without any hardcoded module list.
+MODULE_PALETTE: List[Tuple[str, str]] = [
+    ("E2EEF9", "000000"), ("BDD7EE", "000000"), ("9DC3E6", "000000"),
+    ("70ADD4", "FFFFFF"), ("D9EEF3", "000000"), ("A8D5DF", "000000"),
+    ("6BB8C8", "FFFFFF"), ("3A9DB3", "FFFFFF"), ("E8E8F7", "000000"),
+    ("CACAED", "000000"), ("A5A5DE", "000000"), ("7B7BCF", "FFFFFF"),
+    ("D8E8F8", "000000"), ("B0CFED", "000000"), ("7FAFD9", "000000"),
+    ("4D8EC4", "FFFFFF"), ("FCE4C8", "000000"), ("F9C99A", "000000"),
+    ("F4A563", "000000"), ("EC8330", "FFFFFF"), ("BFBFE0", "000000"),
+    ("C9E2B6", "000000"), ("9FD18B", "000000"), ("E0C7E8", "000000"),
+]
+
+
+def assign_module_colors(module_ids: List[str]) -> Dict[str, Tuple[str, str]]:
+    """Assign a distinct palette colour to each module ID, in first-seen order.
+    Cycles the palette if there are more modules than colours."""
+    colors: Dict[str, Tuple[str, str]] = {}
+    idx = 0
+    for mid in module_ids:
+        if mid in colors:
+            continue
+        colors[mid] = MODULE_PALETTE[idx % len(MODULE_PALETTE)]
+        idx += 1
+    return colors
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -431,58 +438,79 @@ def check_deficit(
     return len(teaching_days) - total_days_needed
 
 
-def interactive_adjust(modules: List[Dict], deficit: int) -> List[Dict]:
-    """
-    Let the user interactively reduce UE of specific modules to cover the deficit.
-    Returns (possibly modified) modules list.
-    """
-    days_to_free = abs(deficit)
-    print()
-    print("=" * 60)
-    print(f"WARNUNG: Modulplan benötigt {days_to_free} Unterrichtstag(e) mehr als verfügbar.")
-    print("=" * 60)
-    print(f"\n{'Modul-ID':<12} {'Bezeichnung':<40} {'UE':>6} {'Tage':>6}")
-    print("-" * 66)
-    for m in modules:
-        days = math.ceil(m["ue"] / 9)  # rough display
-        print(f"{m['id']:<12} {m['title'][:40]:<40} {m['ue']:>6.0f} {days:>6}")
-    print()
-    print("Geben Sie Anpassungen ein (Modul-ID und neue UE, z.B. 'M3 72').")
-    print("Drücken Sie Enter ohne Eingabe, um zu überspringen.\n")
+def _is_fpb_module(module: Dict) -> bool:
+    """True for the Fachpraktische Begleitung (FPB) — must NEVER be shortened."""
+    text = f"{module.get('id', '')} {module.get('title', '')}".lower()
+    norm = text.replace("-", "").replace(" ", "")
+    return (
+        "fachpraktischebegleitung" in norm
+        or module.get("id", "").strip().lower() == "fpb"
+        or "(fpb)" in text
+    )
 
-    while days_to_free > 0:
-        try:
-            line = input(f"Anpassen ({days_to_free} Tag(e) noch offen) > ").strip()
-        except EOFError:
-            print("[INFO] Nicht-interaktiver Modus — überspringe Anpassung.")
-            break
-        if not line:
-            break
-        parts = line.split()
-        if len(parts) < 2:
-            print("  Format: <Modul-ID> <neue UE>  — z.B. 'M3 72'")
-            continue
-        mod_id, new_ue_str = parts[0], parts[1]
-        try:
-            new_ue = float(new_ue_str.replace(",", "."))
-        except ValueError:
-            print("  Ungültige UE-Zahl.")
-            continue
-        found = False
-        for m in modules:
-            if m["id"].lower() == mod_id.lower():
-                old_days = math.ceil(m["ue"] / 9)
-                m["ue"] = new_ue
-                new_days = math.ceil(m["ue"] / 9)
-                freed = old_days - new_days
-                days_to_free -= freed
-                print(f"  -> {m['id']} angepasst: {m['ue']:.0f} UE ({freed:+d} Tage freigegeben). Noch offen: {days_to_free}")
-                found = True
-                break
-        if not found:
-            print(f"  Modul '{mod_id}' nicht gefunden.")
 
-    return modules
+def _is_pv_module(module: Dict) -> bool:
+    """True for a Prüfungsvorbereitung (exam-prep buffer module).
+    The FPB is explicitly excluded so it can never be mistaken for the buffer."""
+    if _is_fpb_module(module):
+        return False
+    text = f"{module.get('id', '')} {module.get('title', '')}".lower()
+    norm = text.replace("ü", "ue").replace("-", "").replace(" ", "")
+    keywords = ("pruefungsvorbereitung", "pruefungsvorb", "prfungsvorbereitung")
+    if any(k in norm for k in keywords):
+        return True
+    return module.get("id", "").strip().lower() in ("pv", "pvb")
+
+
+def auto_adjust_pruefungsvorbereitung(
+    modules: List[Dict], available_days: int, ue_pro_tag: int
+) -> Tuple[List[Dict], Optional[List[Dict]]]:
+    """
+    Resolve a teaching-day deficit by shortening ONLY the Prüfungsvorbereitung
+    module(s). Rationale: the Modulplan is idealtypisch (carries maximum UE);
+    when the concrete Zeitplan offers fewer teaching days, the PV buffer absorbs
+    the difference. The Fachpraktische Begleitung is never shortened.
+
+    Returns (modules, adjustments):
+      - adjustments = [] when no change was needed,
+      - adjustments = list of {id, old_ue, new_ue, days_removed} on success,
+      - adjustments = None when a deficit exists but no PV module was found.
+    """
+    total_needed = sum(math.ceil(m["ue"] / ue_pro_tag) for m in modules)
+    deficit = total_needed - available_days
+    if deficit <= 0:
+        return modules, []
+
+    pv_indices = [i for i, m in enumerate(modules) if _is_pv_module(m)]
+    if not pv_indices:
+        return modules, None  # signal: nothing to absorb the deficit
+
+    adjustments: List[Dict] = []
+    remaining = deficit
+    # Shorten from the LAST Prüfungsvorbereitung block backwards.
+    for i in reversed(pv_indices):
+        if remaining <= 0:
+            break
+        m = modules[i]
+        cur_days = math.ceil(m["ue"] / ue_pro_tag)
+        removable = max(0, cur_days - 1)  # keep at least one day
+        take = min(removable, remaining)
+        if take <= 0:
+            continue
+        new_days = cur_days - take
+        old_ue = m["ue"]
+        new_ue = new_days * ue_pro_tag
+        m["ue"] = new_ue
+        m["bemerkung"] = (
+            f"Prüfungsvorbereitung gekürzt von {int(old_ue)} auf {int(new_ue)} UE "
+            f"(Anpassung an verfügbare Unterrichtstage)"
+        )
+        adjustments.append({
+            "id": m["id"], "old_ue": old_ue, "new_ue": new_ue, "days_removed": take,
+        })
+        remaining -= take
+
+    return modules, adjustments
 
 
 def schedule_modules(
@@ -535,6 +563,7 @@ def schedule_modules(
                 "end_date": None,
                 "days_assigned": 0,
                 "ue_assigned": 0,
+                "bemerkung": module.get("bemerkung", ""),
             })
             continue
 
@@ -551,6 +580,7 @@ def schedule_modules(
             "end_date": end_date,
             "days_assigned": days_assigned,
             "ue_assigned": ue_assigned,
+            "bemerkung": module.get("bemerkung", ""),
         })
 
     return schedule, day_to_module
@@ -646,7 +676,7 @@ def _write_s1_unterrichtsplan(
             _write(4, "—", align="center")
         _write(5, entry["days_assigned"], align="center")
         _write(6, int(entry["ue"]), align="center")
-        _write(7, "")
+        _write(7, entry.get("bemerkung", ""))
         ws.row_dimensions[row].height = 15
 
         sum_ue += entry["ue"]
@@ -880,18 +910,24 @@ def _write_s3_jahreskalender(
 
     ws.freeze_panes = "B4"
 
+    # ---- Build the colour map: dynamic module colours + fixed special types ----
+    # Modules get palette colours in schedule order; specials are fixed.
+    # This single map drives BOTH the conditional formatting AND the legend,
+    # so the calendar and its legend always agree.
+    module_colors = assign_module_colors([e["id"] for e in schedule])
+    day_colors: Dict[str, Tuple[str, str]] = {}
+    day_colors.update(module_colors)
+    day_colors.update(SPECIAL_DAY_COLORS)  # specials win over any ID collision
+
     # ---- Conditional formatting — type="expression", exact equality ----
-    # Use bgColor (correct for DifferentialStyle in Excel CF XML)
-    # Add in REVERSE priority order: last added = highest priority in openpyxl output
-    # Desired priority high->low: Prüf > Pr* > Pr > Fe > Ft > modules
-    cf_order = list(DAY_TYPE_COLORS.keys())  # modules first (lowest), then specials last
-    # Specials must be at the end so they get highest priority
+    # Use bgColor (correct for DifferentialStyle in Excel CF XML).
+    # Add modules first (lowest priority), specials last (highest priority).
     specials = ["Fe", "Ft", "Pr", "Pr+", "Prüf"]
-    modules_order = [k for k in cf_order if k not in specials]
-    final_order = modules_order + ["Fe", "Ft", "Pr", "Pr+", "Prüf"]
+    module_labels = [lbl for lbl in day_colors if lbl not in specials]
+    final_order = module_labels + [s for s in specials if s in day_colors]
 
     for lbl in final_order:
-        bg_hex, fg_hex = DAY_TYPE_COLORS.get(lbl, ("FFFFFF", "000000"))
+        bg_hex, fg_hex = day_colors[lbl]
         dxf = DifferentialStyle(
             fill=PatternFill(bgColor=bg_hex),
             font=Font(name="Arial", color=fg_hex, size=9),
@@ -902,8 +938,6 @@ def _write_s3_jahreskalender(
 
     # ---- Legend (starting at row 37) ----
     LEGEND_START = 37
-    id_to_title = {e["id"]: e["title"] for e in schedule}
-    id_to_ue = {e["id"]: e["ue"] for e in schedule}
 
     ws.cell(row=LEGEND_START, column=1).value = "Legende"
     ws.cell(row=LEGEND_START, column=1).font = Font(name="Arial", bold=True, size=9)
@@ -952,15 +986,16 @@ def _write_s3_jahreskalender(
 
     cf = f"$B$4:${last_col_letter}$34"   # COUNTIF range
 
-    _add_legend_row("Fe",   "Ferien",                   "92D050", "000000",
+    # Special-day rows — swatch colours come from the SAME map as the calendar.
+    _add_legend_row("Fe",   "Ferien",            *SPECIAL_DAY_COLORS["Fe"],
                     f'=COUNTIF({cf},"Fe")')
-    _add_legend_row("Pr",   "Praktikumstag",            "FFD966", "000000",
+    _add_legend_row("Pr",   "Praktikumstag",     *SPECIAL_DAY_COLORS["Pr"],
                     f'=COUNTIF({cf},"Pr")')
 
-    # Pr+ row — description contains "zzgl. 2 UE" for dynamic UE formula
+    # Pr+ row — description contains "zzgl. 2 UE" for the dynamic UE formula
     pr_star_row = legend_row
     pr_star_desc = "Praktikumstag zzgl. 2 UE Fachpraktische Begleitung"
-    _add_legend_row("Pr+",  pr_star_desc,               "F0B400", "000000",
+    _add_legend_row("Pr+",  pr_star_desc,        *SPECIAL_DAY_COLORS["Pr+"],
                     f'=COUNTIF({cf},"Pr+")')
     # L formula reads "2" from the description text in B{pr_star_row}
     ws.cell(row=pr_star_row, column=12).value = (
@@ -968,27 +1003,22 @@ def _write_s3_jahreskalender(
         f'FIND("UE",B{pr_star_row})-FIND("zzgl.",B{pr_star_row})-6)))*K{pr_star_row}'
     )
 
-    _add_legend_row("Prüf", "Prüfungstag",              "FF7070", "FFFFFF",
+    _add_legend_row("Prüf", "Prüfungstag",       *SPECIAL_DAY_COLORS["Prüf"],
                     f'=COUNTIF({cf},"Prüf")')
-    _add_legend_row("Ft",   "Feiertag (gesetzlich)",    "FFB6C1", "000000",
+    _add_legend_row("Ft",   "Feiertag (gesetzlich)", *SPECIAL_DAY_COLORS["Ft"],
                     f'=COUNTIF({cf},"Ft")')
 
-    module_ue_start = legend_row
-
-    for lbl, (bg_hex, fg_hex) in DAY_TYPE_COLORS.items():
-        if not (lbl.startswith("M") or lbl.startswith("IM")):
+    # Module rows — iterate the ACTUAL schedule (variable count), in order.
+    for e in schedule:
+        lbl = e["id"]
+        if lbl in SPECIAL_DAY_COLORS:
             continue
-        title = id_to_title.get(lbl, "")
-        if not title:
-            continue
-        ue_actual = id_to_ue.get(lbl)
+        bg_hex, fg_hex = day_colors.get(lbl, ("FFFFFF", "000000"))
         _add_legend_row(
-            lbl, title, bg_hex, fg_hex,
+            lbl, e["title"], bg_hex, fg_hex,
             f'=COUNTIF({cf},"{lbl}")',
-            int(ue_actual) if ue_actual is not None else None,
+            int(e["ue"]),
         )
-
-    module_ue_end = legend_row - 1
 
     # SUMME row
     ws.cell(row=legend_row, column=1, value="Summe").font = Font(name="Arial", bold=True, size=9)
@@ -1090,24 +1120,47 @@ def main():
         print("[ERROR] No modules parsed from Modulplan.", file=sys.stderr)
         sys.exit(1)
 
-    # Check deficit
+    # Resolve any teaching-day deficit automatically by shortening the
+    # Prüfungsvorbereitung (never the FPB). No interactive prompts — this keeps
+    # the run fully unattended, also under Copilot agent mode.
     teaching_days = [d for d, dt in calendar_days if dt is None]
+    available = len(teaching_days)
     deficit = check_deficit(teaching_days, modules, args.ue_pro_tag)
 
     if deficit < 0:
-        is_interactive = sys.stdin.isatty()
-        if is_interactive:
-            modules = interactive_adjust(modules, deficit)
-        else:
-            total_needed = sum(math.ceil(m["ue"] / args.ue_pro_tag) for m in modules)
+        total_needed = sum(math.ceil(m["ue"] / args.ue_pro_tag) for m in modules)
+        print(
+            f"[INFO] Defizit: {abs(deficit)} Unterrichtstag(e) "
+            f"(benötigt: {total_needed}, verfügbar: {available}). "
+            "Kürze automatisch die Prüfungsvorbereitung."
+        )
+        modules, adjustments = auto_adjust_pruefungsvorbereitung(
+            modules, available, args.ue_pro_tag
+        )
+        if adjustments is None:
             print(
-                f"\n[WARN] Deficit: {abs(deficit)} Unterrichtstag(e). "
-                f"Needed: {total_needed}, Available: {len(teaching_days)}. "
-                "Running in non-interactive mode — proceeding without adjustment.",
+                f"[WARN] Kein Prüfungsvorbereitungs-Modul gefunden, das die "
+                f"{abs(deficit)} fehlenden Tage aufnehmen kann. Plan wird ohne "
+                "Kürzung erstellt (letzte Module evtl. unvollständig).",
                 file=sys.stderr,
             )
+        else:
+            for adj in adjustments:
+                print(
+                    f"  -> {adj['id']}: {int(adj['old_ue'])} -> {int(adj['new_ue'])} UE "
+                    f"({adj['days_removed']} Tag(e) gekürzt)."
+                )
+            new_deficit = check_deficit(teaching_days, modules, args.ue_pro_tag)
+            if new_deficit < 0:
+                print(
+                    f"[WARN] Auch nach Kürzung der Prüfungsvorbereitung verbleibt "
+                    f"ein Defizit von {abs(new_deficit)} Tag(en).",
+                    file=sys.stderr,
+                )
+            else:
+                print("[INFO] Defizit vollständig durch Kürzung der Prüfungsvorbereitung ausgeglichen.")
     else:
-        print(f"[INFO] Capacity surplus: {deficit} teaching day(s) available after scheduling all modules.")
+        print(f"[INFO] Kapazität: {deficit} freie(r) Unterrichtstag(e) nach Verplanung aller Module.")
 
     # Schedule
     schedule, day_to_module = schedule_modules(calendar_days, modules, args.ue_pro_tag)

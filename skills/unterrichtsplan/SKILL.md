@@ -56,18 +56,26 @@ Falls der Modulplan aus einer Konzeptionsdatei (Word) extrahiert werden muss, su
 
 Berechne: **Benötigte Tage pro Modul** = `ceil(UE / UE_pro_Tag)`
 
-## Schritt 4: UE-Bilanz prüfen
+## Schritt 4: UE-Bilanz automatisch ausgleichen
 
 Vergleiche verfügbare Unterrichtstage mit benötigten Tagen.
 
-**Bei Defizit:** Zeige dem Nutzer eine Tabelle:
+Der Modulplan ist **idealtypisch** (maximaler UE-Umfang). Bietet der konkrete
+Zeitplan weniger Unterrichtstage als benötigt, gilt:
 
-| Modul | Bezeichnung | UE geplant | Tage benötigt | Tage verfügbar | Differenz |
-|-------|-------------|-----------|---------------|----------------|-----------|
-| ...   | ...         | ...       | ...           | ...            | ...       |
+- **Bei Defizit wird automatisch und ausschließlich die Prüfungsvorbereitung
+  gekürzt** (Modul, dessen Bezeichnung „Prüfungsvorbereitung" enthält, oder
+  ID `PV`). Mehrere PV-Module werden von hinten beginnend gekürzt.
+- Die **Fachpraktische Begleitung (FPB) wird niemals gekürzt** (Bezeichnung
+  enthält „Fachpraktische Begleitung" bzw. `FPB`).
+- Die Modulanzahl ist **frei variabel** — die Erkennung erfolgt über die
+  Bezeichnung, nicht über feste IDs.
+- Die Kürzung wird in der Spalte *Bemerkungen* des Unterrichtsplans dokumentiert.
+- Es erfolgt **keine interaktive Rückfrage** — das Skript läuft vollständig
+  unbeaufsichtigt (wichtig auch für den Betrieb unter Copilot Agent-Modus).
 
-Frage interaktiv, welche Module gekürzt werden sollen und um wie viel UE.
-**Warte auf Bestätigung** bevor du fortfährst.
+Findet sich kein Prüfungsvorbereitungs-Modul, wird der Plan ohne Kürzung erstellt
+und eine Warnung ausgegeben (letzte Module evtl. unvollständig).
 
 ## Schritt 5: Excel-Output erstellen
 
